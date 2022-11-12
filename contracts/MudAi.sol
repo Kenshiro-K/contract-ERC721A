@@ -16,56 +16,60 @@ contract MudAi is ERC721AQueryable, Ownable, ReentrancyGuard {
   bytes32 public merkleRoot;
   mapping(address => bool) public whitelistClaimed;
 
-  string public uriPrefix = '';
-  string public uriSuffix = '.json';
-  string public hiddenMetadataUri;
+  string public baseURI;
+  string public baseExtension = '.json';
+  string public notRevealedUri;
   
-  uint256 public cost;
-  uint256 public maxSupply;
-  uint256 public maxMintAmountPerTx;
-
-  bool public paused = true;
-  bool public whitelistMintEnabled = false;
+  uint256 public whitelistSaleCost = 0.06 ether;
+  uint256 public publicSaleCost = 0.08 ether;
+  uint256 public maxSupply = 3333;
+  uint256 public maxMintPerTx = 3;
+  uint256 public maxMintPerAddress = 3;
+//TODO:check true or false
+  bool public paused = false;
+  bool public onlyWhitelisted = true;
   bool public revealed = false;
 
   constructor(
     string memory _tokenName,
     string memory _tokenSymbol,
-    uint256 _cost,
-    uint256 _maxSupply,
-    uint256 _maxMintAmountPerTx,
-    string memory _hiddenMetadataUri
+    string memory _notRevealedUri
   ) ERC721A(_tokenName, _tokenSymbol) {
-    setCost(_cost);
-    maxSupply = _maxSupply;
-    setMaxMintAmountPerTx(_maxMintAmountPerTx);
-    setHiddenMetadataUri(_hiddenMetadataUri);
+    setNotRevealedUri(_notRevealedUri);
   }
 
   modifier mintCompliance(uint256 _mintAmount) {
-    require(_mintAmount > 0 && _mintAmount <= maxMintAmountPerTx, 'Invalid mint amount!');
+    //TODO:Check if if statement is ignored when owner
+    if(msg.sender != owner()){
+      uint256 ownerMintedCount = balanceOf(msg.sender);
+      require(ownerMintedCount + _mintAmount <= maxMintPerAddress, "Max NFT per address exceeded!");
+    }
+    require(_mintAmount > 0 && _mintAmount <= maxMintPerTx, 'Invalid mint amount!');
     require(totalSupply() + _mintAmount <= maxSupply, 'Max supply exceeded!');
     _;
   }
 
   modifier mintPriceCompliance(uint256 _mintAmount) {
+    uint256 cost = onlyWhitelisted ? whitelistSaleCost : publicSaleCost;
     require(msg.value >= cost * _mintAmount, 'Insufficient funds!');
     _;
   }
 
   function whitelistMint(uint256 _mintAmount, bytes32[] calldata _merkleProof) public payable mintCompliance(_mintAmount) mintPriceCompliance(_mintAmount) {
-    // Verify whitelist requirements
-    require(whitelistMintEnabled, 'The whitelist sale is not enabled!');
-    require(!whitelistClaimed[_msgSender()], 'Address already claimed!');
+    require(!paused, 'The contract is paused!');
+    require(onlyWhitelisted, 'The whitelist sale is not enabled!');
+    // require(!whitelistClaimed[_msgSender()], 'Address already claimed!');
     bytes32 leaf = keccak256(abi.encodePacked(_msgSender()));
     require(MerkleProof.verify(_merkleProof, merkleRoot, leaf), 'Invalid proof!');
 
-    whitelistClaimed[_msgSender()] = true;
+    //TODO:フロント完成後最後確認
+    // whitelistClaimed[_msgSender()] = true;
     _safeMint(_msgSender(), _mintAmount);
   }
 
   function mint(uint256 _mintAmount) public payable mintCompliance(_mintAmount) mintPriceCompliance(_mintAmount) {
     require(!paused, 'The contract is paused!');
+    require(!onlyWhitelisted, 'Public sale is currently not going on!');
 
     _safeMint(_msgSender(), _mintAmount);
   }
@@ -82,12 +86,12 @@ contract MudAi is ERC721AQueryable, Ownable, ReentrancyGuard {
     require(_exists(_tokenId), 'ERC721Metadata: URI query for nonexistent token');
 
     if (revealed == false) {
-      return hiddenMetadataUri;
+      return notRevealedUri;
     }
 
     string memory currentBaseURI = _baseURI();
     return bytes(currentBaseURI).length > 0
-        ? string(abi.encodePacked(currentBaseURI, _tokenId.toString(), uriSuffix))
+        ? string(abi.encodePacked(currentBaseURI, _tokenId.toString(), baseExtension))
         : '';
   }
 
@@ -95,24 +99,32 @@ contract MudAi is ERC721AQueryable, Ownable, ReentrancyGuard {
     revealed = _state;
   }
 
-  function setCost(uint256 _cost) public onlyOwner {
-    cost = _cost;
+  function setWhitelistSaleCost(uint256 _cost) public onlyOwner {
+    whitelistSaleCost = _cost;
   }
 
-  function setMaxMintAmountPerTx(uint256 _maxMintAmountPerTx) public onlyOwner {
-    maxMintAmountPerTx = _maxMintAmountPerTx;
+  function setPublicSaleCost(uint256 _cost) public onlyOwner {
+    publicSaleCost = _cost;
   }
 
-  function setHiddenMetadataUri(string memory _hiddenMetadataUri) public onlyOwner {
-    hiddenMetadataUri = _hiddenMetadataUri;
+  function setMaxMintPerTx(uint256 _maxMintPerTx) public onlyOwner {
+    maxMintPerTx = _maxMintPerTx;
   }
 
-  function setUriPrefix(string memory _uriPrefix) public onlyOwner {
-    uriPrefix = _uriPrefix;
+  function setMaxMintPerAddress(uint256 _limit) public onlyOwner {
+    maxMintPerAddress = _limit;
   }
 
-  function setUriSuffix(string memory _uriSuffix) public onlyOwner {
-    uriSuffix = _uriSuffix;
+  function setNotRevealedUri(string memory _notRevealedUri) public onlyOwner {
+    notRevealedUri = _notRevealedUri;
+  }
+
+  function setBaseTokenURI(string memory _newBaseURI) public onlyOwner {
+    baseURI = _newBaseURI;
+  }
+
+  function setBaseExtension(string memory _baseExtension) public onlyOwner {
+    baseExtension = _baseExtension;
   }
 
   function setPaused(bool _state) public onlyOwner {
@@ -123,20 +135,16 @@ contract MudAi is ERC721AQueryable, Ownable, ReentrancyGuard {
     merkleRoot = _merkleRoot;
   }
 
-  function setWhitelistMintEnabled(bool _state) public onlyOwner {
-    whitelistMintEnabled = _state;
-  }
-
-  function withdraw() public onlyOwner nonReentrant {
-    // This will transfer the remaining contract balance to the owner.
-    // Do not remove this otherwise you will not be able to withdraw the funds.
-    // =============================================================================
-    (bool os, ) = payable(owner()).call{value: address(this).balance}('');
-    require(os);
-    // =============================================================================
+  function setOnlyWhitelisted(bool _state) public onlyOwner {
+    onlyWhitelisted = _state;
   }
 
   function _baseURI() internal view virtual override returns (string memory) {
-    return uriPrefix;
+    return baseURI;
+  }
+
+  function withdraw() public onlyOwner nonReentrant {
+    (bool os, ) = payable(owner()).call{value: address(this).balance}('');
+    require(os);
   }
 }
