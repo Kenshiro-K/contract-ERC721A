@@ -9,7 +9,7 @@ import '@openzeppelin/contracts/utils/cryptography/MerkleProof.sol';
 import '@openzeppelin/contracts/utils/Strings.sol';
 import '@openzeppelin/contracts/security/ReentrancyGuard.sol';
 
-contract MudAi is ERC721AQueryable, Ownable, ReentrancyGuard {
+contract MudAiNFT is ERC721AQueryable, Ownable, ReentrancyGuard {
 
   using Strings for uint256;
 
